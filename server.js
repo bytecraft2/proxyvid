@@ -49,7 +49,7 @@ function isAllowedRequest(req) {
 // Headers globais
 app.use((req, res, next) => {
   // Permite apenas seu site acessar por navegador
-  res.setHeader('Access-Control-Allow-Origin', ALLOWED_ORIGIN);
+  // res.setHeader('Access-Control-Allow-Origin', ALLOWED_ORIGIN);
   res.setHeader('Vary', 'Origin');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Range');
