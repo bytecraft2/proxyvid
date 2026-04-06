@@ -76,9 +76,9 @@ app.use((req, res, next) => {
 
 app.get('/proxy', async (req, res) => {
   // Bloqueia uso fora do seu domínio
-  if (!isAllowedRequest(req)) {
-    return res.status(403).send('Acesso não permitido');
-  }
+  // if (!isAllowedRequest(req)) {
+  //   return res.status(403).send('Acesso não permitido');
+  // }
 
   const url = req.query.url;
 
