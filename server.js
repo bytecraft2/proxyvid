@@ -49,7 +49,7 @@ function isAllowedRequest(req) {
 // Headers globais
 app.use((req, res, next) => {
   // Permite apenas seu site acessar por navegador
-  // res.setHeader('Access-Control-Allow-Origin', ALLOWED_ORIGIN);
+  res.setHeader('Access-Control-Allow-Origin', ALLOWED_ORIGIN);
   res.setHeader('Vary', 'Origin');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Range');
@@ -76,9 +76,9 @@ app.use((req, res, next) => {
 
 app.get('/proxy', async (req, res) => {
   // Bloqueia uso fora do seu domínio
-  // if (!isAllowedRequest(req)) {
-  //   return res.status(403).send('Acesso não permitido');
-  // }
+  if (!isAllowedRequest(req)) {
+    return res.status(403).send('Acesso não permitido');
+  }
 
   const url = req.query.url;
 
