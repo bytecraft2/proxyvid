@@ -49,8 +49,8 @@ app.get('/proxy', async (req, res) => {
   }
 
   const url = download ? 
-    `https://zerostorage.net/api/files/download/${id}` : 
-    `https://zerostorage.net/api/files/${id}/stream`;
+    `https://test.zerostorage.net/api/files/download/${id}?track=true` : 
+    `https://test.zerostorage.net/api/files/${id}/stream`;
   let parsedUrl;
   try {
     parsedUrl = new URL(url);
