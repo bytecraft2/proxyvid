@@ -6,10 +6,6 @@ const { Readable } = require('stream');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Troque aqui pelo seu domínio real
-const ALLOWED_DOMAIN = 'arquivoplay.site';
-const ALLOWED_ORIGIN = `https://${ALLOWED_DOMAIN}`;
-
 const ALLOWED_RESPONSE_HEADERS = new Set([
   'content-type',
   'content-length',
@@ -21,47 +17,15 @@ const ALLOWED_RESPONSE_HEADERS = new Set([
   'expires',
 ]);
 
-function isAllowedRequest(req) {
-  const origin = req.headers.origin || '';
-  const referer = req.headers.referer || '';
-
-  try {
-    if (origin) {
-      const originUrl = new URL(origin);
-      if (originUrl.hostname === ALLOWED_DOMAIN || originUrl.hostname.endsWith(`.${ALLOWED_DOMAIN}`)) {
-        return true;
-      }
-    }
-  } catch {}
-
-  try {
-    if (referer) {
-      const refererUrl = new URL(referer);
-      if (refererUrl.hostname === ALLOWED_DOMAIN || refererUrl.hostname.endsWith(`.${ALLOWED_DOMAIN}`)) {
-        return true;
-      }
-    }
-  } catch {}
-
-  return false;
-}
-
 // Headers globais
 app.use((req, res, next) => {
-  // Permite apenas seu site acessar por navegador
-  res.setHeader('Access-Control-Allow-Origin', ALLOWED_ORIGIN);
-  res.setHeader('Vary', 'Origin');
+  // Permite qualquer origem (removida a verificação de domínio)
+  res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Range');
   res.setHeader(
     'Access-Control-Expose-Headers',
     'Content-Length, Content-Range, Accept-Ranges, Content-Type'
-  );
-
-  // Só permite iframe no seu domínio
-  res.setHeader(
-    'Content-Security-Policy',
-    `frame-ancestors 'self' ${ALLOWED_ORIGIN}`
   );
 
   // Opcional: evita sniffing
@@ -75,26 +39,23 @@ app.use((req, res, next) => {
 });
 
 app.get('/proxy', async (req, res) => {
-  // Bloqueia uso fora do seu domínio
-  if (!isAllowedRequest(req)) {
-    return res.status(403).send('Acesso não permitido');
+  const id = req.query.id;
+  const filename = req.query.filename || 'video.mp4';
+  const type = req.query.type || 'stream';
+  const download = type === 'download';
+
+  if (!id) {
+    return res.status(400).send('ID não informado');
   }
 
-  const url = req.query.url;
-
-  if (!url) {
-    return res.status(400).send('URL não informada');
-  }
-
+  const url = download ? 
+    `https://zerostorage.net/api/files/download/${id}` : 
+    `https://zerostorage.net/api/files/${id}/stream`;
   let parsedUrl;
   try {
     parsedUrl = new URL(url);
-
-    if (!['http:', 'https:'].includes(parsedUrl.protocol)) {
-      return res.status(400).send('URL inválida');
-    }
   } catch {
-    return res.status(400).send('URL inválida');
+    return res.status(400).send('ID inválido');
   }
 
   try {
@@ -127,6 +88,11 @@ app.get('/proxy', async (req, res) => {
       if (ALLOWED_RESPONSE_HEADERS.has(name.toLowerCase())) {
         res.setHeader(name, value);
       }
+    }
+
+    // Adiciona Content-Disposition para download com nome do arquivo
+    if (download) {
+      res.setHeader('Content-Disposition', 'attachment; filename="' + filename.replace(/"/g, '\\"') + '"');
     }
 
     if (!remoteResponse.body) {
