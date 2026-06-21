@@ -19,16 +19,16 @@ const ALLOWED_RESPONSE_HEADERS = new Set([
 
 // Headers globais
 app.use((req, res, next) => {
-  // Permite qualquer origem (removida a verificação de domínio)
+  // Permite qualquer origem
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Range');
+  res.setHeader('Access-Control-Allow-Headers', 'Range, If-Range');
   res.setHeader(
     'Access-Control-Expose-Headers',
-    'Content-Length, Content-Range, Accept-Ranges, Content-Type'
+    'Content-Length, Content-Range, Accept-Ranges, Content-Type, Content-Disposition'
   );
 
-  // Opcional: evita sniffing
+  // Evita sniffing e caching de respostas de erro
   res.setHeader('X-Content-Type-Options', 'nosniff');
 
   if (req.method === 'OPTIONS') {
@@ -51,6 +51,7 @@ app.get('/proxy', async (req, res) => {
   const url = download ? 
     `https://test.zerostorage.net/api/files/download/${id}?track=true` : 
     `https://test.zerostorage.net/api/files/${id}/stream`;
+  
   let parsedUrl;
   try {
     parsedUrl = new URL(url);
@@ -76,58 +77,121 @@ app.get('/proxy', async (req, res) => {
       redirect: 'follow',
     });
 
+    // Verifica se a resposta é válida
+    if (!remoteResponse.ok && remoteResponse.status !== 206) {
+      console.error(`Erro do servidor remoto: ${remoteResponse.status}`);
+      return res.status(remoteResponse.status).json({
+        error: 'Erro ao buscar arquivo no servidor remoto',
+        status: remoteResponse.status
+      });
+    }
+
+    // Configura os headers antes de qualquer streaming
+    // Importante: definir o status primeiro
     res.status(remoteResponse.status);
 
-    // Se o servidor remoto não mandar, força suporte a range
+    // Força accept-ranges se não vier do remoto
     if (!remoteResponse.headers.has('accept-ranges')) {
       res.setHeader('Accept-Ranges', 'bytes');
     }
 
-    // Repassa só os headers permitidos
+    // Repassa apenas headers permitidos
+    let contentLength = null;
     for (const [name, value] of remoteResponse.headers.entries()) {
-      if (ALLOWED_RESPONSE_HEADERS.has(name.toLowerCase())) {
+      const lowerName = name.toLowerCase();
+      if (ALLOWED_RESPONSE_HEADERS.has(lowerName)) {
+        // Guarda content-length para verificação depois
+        if (lowerName === 'content-length') {
+          contentLength = parseInt(value, 10);
+        }
         res.setHeader(name, value);
       }
     }
 
-    // Adiciona Content-Disposition para download com nome do arquivo
+    // Adiciona Content-Disposition para download
     if (download) {
-      res.setHeader('Content-Disposition', 'attachment; filename="' + filename.replace(/"/g, '\\"') + '"');
+      // Sanitiza o nome do arquivo
+      const safeFilename = filename.replace(/[^a-zA-Z0-9_.-]/g, '_');
+      res.setHeader('Content-Disposition', `attachment; filename="${safeFilename}"`);
     }
 
-    if (!remoteResponse.body) {
+    // Se for uma resposta HEAD ou não tiver corpo
+    if (remoteResponse.status === 204 || remoteResponse.status === 304) {
       return res.end();
     }
 
+    // Verifica se há corpo na resposta
+    if (!remoteResponse.body) {
+      console.warn('Resposta sem corpo recebida');
+      return res.end();
+    }
+
+    // Cria o stream a partir da resposta remota
     const nodeStream = Readable.fromWeb(remoteResponse.body);
 
+    // Adiciona timeout para evitar conexões pendentes
+    req.setTimeout(30000);
+    res.setTimeout(30000);
+
+    // Handler de erro do stream
     nodeStream.on('error', (err) => {
+      console.error('Erro no stream:', err.message);
       if (!res.headersSent) {
         res.status(502).json({
-          error: 'Erro ao buscar vídeo',
+          error: 'Erro ao transmitir vídeo',
           details: err.message,
         });
       } else {
-        res.destroy(err);
+        // Se já enviou headers, apenas finaliza a conexão
+        res.end();
       }
     });
 
+    // Monitora o fim do stream
+    nodeStream.on('end', () => {
+      console.log('Stream finalizado com sucesso');
+    });
+
+    // Pipe com tratamento de erro
     nodeStream.pipe(res);
+
+    // Handler para quando o cliente desconecta
+    req.on('close', () => {
+      // Destrói o stream se o cliente desconectar
+      if (!nodeStream.destroyed) {
+        nodeStream.destroy();
+      }
+    });
+
   } catch (err) {
+    console.error('Erro no proxy:', err.message);
     if (!res.headersSent) {
       res.status(502).json({
         error: 'Erro ao buscar vídeo',
         details: err.message,
       });
     } else {
-      res.destroy(err);
+      res.end();
     }
   }
 });
 
 // Rota simples para teste
 app.get('/', (req, res) => {
-  res.send('Proxy online');
+  res.send('Proxy online - Use /proxy?id=SEU_ID para acessar o vídeo');
+});
+
+// Handler de erro global
+app.use((err, req, res, next) => {
+  console.error('Erro global:', err.message);
+  if (!res.headersSent) {
+    res.status(500).json({
+      error: 'Erro interno do servidor',
+      details: err.message,
+    });
+  } else {
+    res.end();
+  }
 });
 
 app.listen(PORT, () => {
